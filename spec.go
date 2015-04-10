@@ -50,9 +50,17 @@ const (
 	starBit = 1 << 63
 )
 
+func (s *SpecSchedule) Next(t time.Time) time.Time {
+	return s.next(t, false)
+}
+
+func (s *SpecSchedule) Prev(t time.Time) time.Time {
+	return s.next(t, true)
+}
+
 // Next returns the next time this schedule is activated, greater than the given
 // time.  If no time can be found to satisfy the schedule, return the zero time.
-func (s *SpecSchedule) Next(t time.Time) time.Time {
+func (s *SpecSchedule) next(t time.Time, isPrev bool) time.Time {
 	// General approach:
 	// For Month, Day, Hour, Minute, Second:
 	// Check if the time value matches.  If yes, continue to the next field.
@@ -70,6 +78,11 @@ func (s *SpecSchedule) Next(t time.Time) time.Time {
 	// If no time is found within five years, return zero.
 	yearLimit := t.Year() + 5
 
+	var operation int = 1
+	if isPrev {
+		operation = -1
+	}
+
 WRAP:
 	if t.Year() > yearLimit {
 		return time.Time{}
@@ -84,7 +97,7 @@ WRAP:
 			// Otherwise, set the date at the beginning (since the current time is irrelevant).
 			t = time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, t.Location())
 		}
-		t = t.AddDate(0, 1, 0)
+		t = t.AddDate(0, operation, 0)
 
 		// Wrapped around.
 		if t.Month() == time.January {
@@ -98,7 +111,7 @@ WRAP:
 			added = true
 			t = time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
 		}
-		t = t.AddDate(0, 0, 1)
+		t = t.AddDate(0, 0, operation)
 
 		if t.Day() == 1 {
 			goto WRAP
@@ -110,7 +123,7 @@ WRAP:
 			added = true
 			t = t.Truncate(time.Hour)
 		}
-		t = t.Add(1 * time.Hour)
+		t = t.Add(time.Duration(operation) * time.Hour)
 
 		if t.Hour() == 0 {
 			goto WRAP
@@ -122,7 +135,7 @@ WRAP:
 			added = true
 			t = t.Truncate(time.Minute)
 		}
-		t = t.Add(1 * time.Minute)
+		t = t.Add(time.Duration(operation) * time.Minute)
 
 		if t.Minute() == 0 {
 			goto WRAP
@@ -134,7 +147,7 @@ WRAP:
 			added = true
 			t = t.Truncate(time.Second)
 		}
-		t = t.Add(1 * time.Second)
+		t = t.Add(time.Duration(operation) * time.Second)
 
 		if t.Second() == 0 {
 			goto WRAP
