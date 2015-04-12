@@ -198,6 +198,14 @@ func (t testJob) Run() {
 	t.wg.Done()
 }
 
+func (t testJob) GetId() string {
+	return ""
+}
+
+func (t testJob) UpdatedAt() time.Time {
+	return time.Now()
+}
+
 // Simple test using Runnables.
 func TestJob(t *testing.T) {
 	wg := &sync.WaitGroup{}

@@ -4,6 +4,7 @@ package cron
 
 import (
 	"sort"
+	"sync"
 	"time"
 )
 
@@ -11,16 +12,21 @@ import (
 // specified by the schedule. It may be started, stopped, and the entries may
 // be inspected while running.
 type Cron struct {
+	sync.RWMutex
+
 	entries  []*Entry
 	stop     chan struct{}
 	add      chan *Entry
 	snapshot chan []*Entry
 	running  bool
+	count    int
 }
 
 // Job is an interface for submitted cron jobs.
 type Job interface {
 	Run()
+	GetId() string
+	UpdatedAt() time.Time
 }
 
 // The Schedule describes a job's duty cycle.
@@ -46,6 +52,9 @@ type Entry struct {
 
 	// The Job to run.
 	Job Job
+	// Id  int
+
+	UpdatedAt time.Time
 }
 
 // byTime is a wrapper for sorting the entry array by time
@@ -67,6 +76,8 @@ func (s byTime) Less(i, j int) bool {
 	return s[i].Next.Before(s[j].Next)
 }
 
+var entryMap = make(map[string]*Entry)
+
 // New returns a new Cron job runner.
 func New() *Cron {
 	return &Cron{
@@ -75,6 +86,7 @@ func New() *Cron {
 		stop:     make(chan struct{}),
 		snapshot: make(chan []*Entry),
 		running:  false,
+		count:    0,
 	}
 }
 
@@ -82,6 +94,14 @@ func New() *Cron {
 type FuncJob func()
 
 func (f FuncJob) Run() { f() }
+
+func (f FuncJob) GetId() string {
+	return ""
+}
+
+func (f FuncJob) UpdatedAt() time.Time {
+	return time.Now()
+}
 
 // AddFunc adds a func to the Cron to be run on the given schedule.
 func (c *Cron) AddFunc(spec string, cmd func()) error {
@@ -94,8 +114,38 @@ func (c *Cron) AddJob(spec string, cmd Job) error {
 	if err != nil {
 		return err
 	}
+	// c.count++
 	c.Schedule(schedule, cmd)
 	return nil
+}
+
+func (c *Cron) UpdateJobs(cmds map[string]Job) {
+	for spec, cmd := range cmds {
+		jobId := cmd.GetId()
+
+		if jobId != "" {
+			// Do nothing if jobId is existing and is not newer
+			if oldEntry, ok := entryMap[jobId]; ok && cmd.UpdatedAt().After(oldEntry.Job.UpdatedAt()) {
+				continue
+			}
+			c.AddJob(spec, cmd)
+		} else {
+			c.AddJob(spec, cmd)
+		}
+	}
+
+	c.Lock()
+	w := 0 // write index
+	for _, x := range c.entries {
+		id := x.Job.GetId()
+		if _, ok := entryMap[id]; !ok && id != "" {
+			continue
+		}
+		c.entries[w] = x
+		w++
+	}
+	c.entries = c.entries[:w]
+	c.Unlock()
 }
 
 // Schedule adds a Job to the Cron to be run on the given schedule.
@@ -104,6 +154,11 @@ func (c *Cron) Schedule(schedule Schedule, cmd Job) {
 		Schedule: schedule,
 		Job:      cmd,
 	}
+
+	if cmd.GetId() != "" {
+		entryMap[cmd.GetId()] = entry
+	}
+
 	if !c.running {
 		c.entries = append(c.entries, entry)
 		return
@@ -164,7 +219,9 @@ func (c *Cron) run() {
 			continue
 
 		case newEntry := <-c.add:
+			c.Lock()
 			c.entries = append(c.entries, newEntry)
+			c.Unlock()
 			newEntry.Next = newEntry.Schedule.Next(now)
 
 		case <-c.snapshot:
