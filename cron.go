@@ -52,9 +52,6 @@ type Entry struct {
 
 	// The Job to run.
 	Job Job
-	// Id  int
-
-	UpdatedAt time.Time
 }
 
 // byTime is a wrapper for sorting the entry array by time
